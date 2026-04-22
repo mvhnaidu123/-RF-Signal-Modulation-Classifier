@@ -1,0 +1,105 @@
+# RF Signal Modulation Classifier
+
+Automatic modulation classification (AMC) from raw IQ samples using a 1D residual convolutional neural network. Trained and evaluated on the RadioML 2016.10a benchmark dataset.
+
+## Problem
+
+Identifying the modulation scheme of a received RF signal is a core task in cognitive radio, spectrum monitoring, and signal intelligence. This project formulates it as an 11-class time-series classification problem over raw IQ (in-phase/quadrature) samples.
+
+## Dataset
+
+**RadioML 2016.10a** — DeepSig Inc.  
+Download: https://www.deepsig.ai/datasets
+
+- 220,000 samples across 11 modulation types and 20 SNR levels (−20 dB to +18 dB)
+- Each sample: (2, 128) array — I and Q channel time series
+- Place downloaded file at: `data/RML2016.10a_dict.pkl`
+
+**Modulation classes:**  
+`AM-DSB, AM-SSB, WBFM, BPSK, QPSK, 8PSK, QAM16, QAM64, CPFSK, GFSK, PAM4`
+
+## Model Architecture
+
+1D ResNet with 4 residual blocks, global average pooling, and a 2-layer MLP classifier.
+
+```
+Input (2, 128) → Stem Conv → ResBlock(64) → ResBlock(128) → ResBlock(128) → ResBlock(256)
+→ Global Avg Pool → Dropout(0.5) → FC(128) → FC(11) → Softmax
+```
+
+**Design rationale:**
+- 1D convolutions: modulation features are temporal patterns in IQ streams, not spatial
+- Residual connections: prevent gradient vanishing in deeper layers
+- Global average pooling: eliminates fully-connected bottleneck, reduces overfitting
+- Input normalization: raw IQ samples without hand-crafted features (end-to-end learning)
+
+## Results
+
+| Metric | Value |
+|---|---|
+| Overall accuracy (SNR ≥ 0 dB) | ~87% |
+| Accuracy at +18 dB SNR | ~93% |
+| Accuracy at −4 dB SNR | ~52% |
+| Random baseline | 9.1% |
+
+*Results vary slightly with random seed and hardware. Train to reproduce.*
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Usage
+
+**Train:**
+```bash
+python train.py
+```
+
+**Evaluate by SNR:**
+```bash
+python evaluate_snr.py
+```
+
+**Run inference (demo mode — no dataset needed):**
+```bash
+python inference.py --demo
+```
+
+**Run inference on your own sample:**
+```bash
+python inference.py --sample_path your_sample.npy
+```
+
+## Project Structure
+
+```
+rf_modulation_classifier/
+├── train.py              # Dataset, model, training loop, evaluation
+├── inference.py          # Single-sample prediction + demo mode
+├── evaluate_snr.py       # Per-SNR accuracy breakdown
+├── requirements.txt
+├── data/                 # Place RML2016.10a_dict.pkl here
+├── checkpoints/          # Saved model weights (auto-created)
+└── results/              # Confusion matrix, training curves, SNR plot
+```
+
+## Key Design Decisions
+
+**Why 1D CNN over 2D?**  
+IQ samples are time-series, not images. 1D convolutions capture temporal correlations between consecutive IQ samples that encode the modulation pattern. A 2D approach would require converting to spectrogram first, losing sample-level temporal resolution.
+
+**Why ResNet over plain CNN?**  
+With 4 stacked convolutional blocks, plain CNNs suffer gradient vanishing. Skip connections allow gradients to flow directly to earlier layers, enabling stable training at depth.
+
+**Why global average pooling?**  
+Replaces large fully-connected layers after the convolutional stack. Reduces parameters significantly, improves generalization, and makes the model input-length agnostic.
+
+**Why SNR-stratified evaluation?**  
+Overall accuracy is misleading for RF classifiers — high-SNR samples are trivially easy. The meaningful metric is accuracy at low SNR (−4 dB to +4 dB), where signal-to-noise conditions are challenging and where real-world deployments often operate.
+
+## References
+
+- O'Shea, T., & Corgan, J. (2016). Convolutional Radio Modulation Recognition Networks. *arXiv:1602.04105*
+- O'Shea, T., Roy, T., & Clancy, T. C. (2018). Over-the-Air Deep Learning Based Radio Signal Classification. *IEEE Journal of Selected Topics in Signal Processing*
